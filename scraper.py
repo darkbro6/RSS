@@ -49,38 +49,46 @@ def scrape_fb():
                     language="en",
                 )
 
-                # Scrape posts
-                posts = page.query_selector_all('div[role="article"], article, .story_body_container')
-                print(f"Found {len(posts)} posts for {fb_page['name']}")
+                # More aggressive searching for posts
+                # Look for common containers in mbasic/mobile
+                posts = page.query_selector_all('div[role="article"], article, .story_body_container, div.msg > div, div._5pxc')
+                print(f"Found {len(posts)} potential post elements for {fb_page['name']}")
 
                 count = 0
                 for post in posts:
                     if count >= 15: break
                     try:
-                        inner_text = post.inner_text()
-                        lines = [l.strip() for l in inner_text.split('\n') if len(l.strip()) > 3]
+                        # Extract all text from the container
+                        all_text = post.inner_text()
                         
-                        # Filter out common UI words
-                        garbage = ["Like", "Comment", "Share", "Full Story", "More", "React"]
-                        clean_lines = [l for l in lines if not any(g in l for g in garbage)]
+                        # Split by lines and clean
+                        lines = [l.strip() for l in all_text.split('\n') if len(l.strip()) > 5]
                         
-                        content = " ".join(clean_lines)
-                        if len(content) < 10: continue
+                        # Filter out common Facebook UI strings
+                        forbidden = ["Like", "Comment", "Share", "React", "Full Story", "More", "View", "replies", "Shared with", "Public"]
+                        clean_text = " ".join([l for l in lines if not any(f in l for f in forbidden)])
 
-                        link_elem = post.query_selector('a[href*="story_fbid"], a[href*="fbid="], a:has-text("Full Story")')
+                        if len(clean_text) < 15:
+                            continue
+
+                        # Find any link in the post
+                        link_elem = post.query_selector('a[href*="story_fbid"], a[href*="fbid="], a[href*="/photos/"], a:has-text("Full Story")')
                         post_link = f"https://facebook.com/{fb_page['id']}"
                         if link_elem:
                             raw_href = link_elem.get_attribute('href')
-                            post_link = "https://m.facebook.com" + raw_href if not raw_href.startswith('http') else raw_href
+                            if raw_href:
+                                if raw_href.startswith('http'): post_link = raw_href
+                                else: post_link = "https://m.facebook.com" + raw_href
 
                         feed.add_item(
-                            title=content[:80].strip() + "...",
+                            title=clean_text[:80].strip() + "...",
                             link=post_link,
-                            description=content,
+                            description=clean_text,
                             pubdate=datetime.now()
                         )
                         count += 1
-                    except: continue
+                    except:
+                        continue
 
                 if count == 0:
                     feed.add_item(title="No posts found", link=url, description="Logged in but couldn't find posts. Check layout.", pubdate=datetime.now())
